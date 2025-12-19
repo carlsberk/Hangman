@@ -1,0 +1,388 @@
+import tkinter as tk
+from tkinter import messagebox
+import random
+import os
+import pygame  # Ses için
+from PIL import Image, ImageTk  # Resim işlemek için (pip install pillow)
+
+# --- CONFIG ---
+WORDS = [
+    "PYTHON", "CYBERPUNK", "DEVELOPER", "ALGORITHM", "MAINFRAME",
+    "DATABASE", "VARIABLE", "ENCRYPTION", "NETWORK", "INTERFACE"
+]
+
+MAX_TRIES = 6
+
+C = {
+    "bg_main": "#0F172A",
+    "bg_panel": "#1E293B",
+    "fg_primary": "#F8FAFC",
+    "fg_secondary": "#94A3B8",
+    "neon_blue": "#00E5FF",
+    "neon_green": "#00FF7F",
+    "neon_red": "#FF1744",
+    "neon_yellow": "#FFD700",
+    "btn_normal": "#334155",
+    "btn_hover": "#475569",
+    "btn_active": "#00E5FF",
+    "btn_disabled": "#0F172A",
+    "txt_disabled": "#475569"
+}
+
+F = {
+    "header": ("Montserrat", 28, "bold"),
+    "score": ("Montserrat", 12),
+    "word": ("Courier New", 40, "bold"),
+    "info": ("Montserrat", 14, "bold"),
+    "btn": ("Verdana", 10, "bold"),
+    "result": ("Montserrat", 20, "bold")
+}
+
+# --- DOSYA YOLU AYARLARI ---
+pygame.mixer.init()
+
+# 1. SES DOSYASI YOLU (Senin bilgisayarındaki yol)
+SOUND_DEATH_PATH = r"C:\Users\sarit\Downloads\Erkek Bağırma Sesi.mp3"
+
+# 2. RESİM DOSYASI YOLU (Bunu da İndirilenler klasöründe varsaydım, değiştirebilirsin)
+IMAGE_DEATH_PATH = r"C:\Users\sarit\Downloads\png-transparent-you-died-thumbnail.png"
+
+# Kazanma sesi (Opsiyonel, proje klasöründe varsa)
+BASE_DIR = os.path.dirname(__file__)
+SOUND_WIN_PATH = os.path.join(BASE_DIR, "sounds", "win.wav")
+
+
+class ModernButton(tk.Button):
+    def __init__(self, master, **kw):
+        super().__init__(master, **kw)
+        self.defaultBg = self["background"]
+        self.hoverBg = C["btn_hover"]
+        self.activeBg = C["neon_blue"]
+
+        self.bind("<Enter>", self.on_enter)
+        self.bind("<Leave>", self.on_leave)
+        self.bind("<ButtonPress-1>", self.on_press)
+        self.bind("<ButtonRelease-1>", self.on_release)
+
+        self.configure(relief="flat", bd=0,
+                       activebackground=self.activeBg,
+                       activeforeground=C["bg_main"])
+
+    def on_enter(self, e):
+        if self["state"] == "normal":
+            self["background"] = self.hoverBg
+
+    def on_leave(self, e):
+        if self["state"] == "normal":
+            self["background"] = self.defaultBg
+
+    def on_press(self, e):
+        if self["state"] == "normal":
+            self["background"] = self.activeBg
+
+    def on_release(self, e):
+        if self["state"] == "normal":
+            self["background"] = self.hoverBg
+
+
+class HangmanSuperGUI:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("HANGMAN // NEON EDITION")
+        self.root.geometry("1000x700")
+        self.root.configure(bg=C["bg_main"])
+        self.root.resizable(False, False)
+
+        self.wins = 0
+        self.losses = 0
+        self.sound_on = True
+        self.death_image_tk = None  # Resmi hafızada tutmak için
+        self.death_label = None  # Ekranda göstermek için etiket
+
+        self.preload_assets()  # Resmi önceden yükle
+        self.setup_game()
+        self.build_ui()
+        self.root.bind("<Key>", self.key_input)
+
+    def preload_assets(self):
+        """Resmi bir kez yükleyip hafızaya alır."""
+        if os.path.exists(IMAGE_DEATH_PATH):
+            try:
+                # Resmi aç
+                img = Image.open(IMAGE_DEATH_PATH)
+                # Resmi biraz küçült (örneğin genişlik 600px olacak şekilde)
+                base_width = 600
+                w_percent = (base_width / float(img.size[0]))
+                h_size = int((float(img.size[1]) * float(w_percent)))
+                img = img.resize((base_width, h_size), Image.Resampling.LANCZOS)
+
+                self.death_image_tk = ImageTk.PhotoImage(img)
+            except Exception as e:
+                print(f"Resim yüklenemedi: {e}")
+        else:
+            print(f"UYARI: Resim dosyası bulunamadı -> {IMAGE_DEATH_PATH}")
+
+    # --- GAME LOGIC ---
+    def setup_game(self):
+        self.word = random.choice(WORDS).lower()
+        self.guessed = set()
+        self.errors = 0
+        self.game_over = False
+
+    def display_word(self):
+        return " ".join(
+            c.upper() if c in self.guessed else "_"
+            for c in self.word
+        )
+
+    # --- UI ---
+    def build_ui(self):
+        container = tk.Frame(self.root, bg=C["bg_main"])
+        container.pack(fill="both", expand=True, padx=30, pady=30)
+
+        header = tk.Frame(container, bg=C["bg_main"])
+        header.pack(fill="x", pady=(0, 20))
+
+        tk.Label(header, text="HANGMAN // NEON",
+                 font=F["header"],
+                 fg=C["neon_blue"],
+                 bg=C["bg_main"]).pack(side="left")
+
+        self.score_lbl = tk.Label(
+            header,
+            text=f"WINS: {self.wins} | LOSSES: {self.losses}",
+            font=F["score"],
+            fg=C["fg_secondary"],
+            bg=C["bg_main"]
+        )
+        self.score_lbl.pack(side="right")
+
+        self.sound_btn = ModernButton(
+            header,
+            text="🔊 SOUND ON",
+            font=F["score"],
+            bg=C["btn_normal"],
+            fg=C["fg_primary"],
+            command=self.toggle_sound
+        )
+        self.sound_btn.pack(side="right", padx=15)
+
+        content = tk.Frame(container, bg=C["bg_main"])
+        content.pack(fill="both", expand=True)
+
+        # LEFT PANEL
+        left = tk.Frame(content, bg=C["bg_panel"], width=400)
+        left.pack(side="left", fill="both", padx=(0, 20))
+        left.pack_propagate(False)
+
+        self.canvas = tk.Canvas(left, width=360, height=450,
+                                bg=C["bg_panel"], highlightthickness=0)
+        self.canvas.pack(expand=True)
+        self.draw_gallows()
+
+        # RIGHT PANEL
+        right = tk.Frame(content, bg=C["bg_panel"])
+        right.pack(side="right", fill="both", expand=True)
+
+        self.word_lbl = tk.Label(
+            right,
+            text=self.display_word(),
+            font=F["word"],
+            fg=C["neon_green"],
+            bg=C["bg_panel"]
+        )
+        self.word_lbl.pack(pady=30)
+
+        self.tries_lbl = tk.Label(
+            right,
+            text=f"REMAINING TRIES: {MAX_TRIES}",
+            font=F["info"],
+            fg=C["neon_blue"],
+            bg=C["bg_panel"]
+        )
+        self.tries_lbl.pack()
+
+        self.result_lbl = tk.Label(
+            right,
+            text="",
+            font=F["result"],
+            bg=C["bg_panel"]
+        )
+        self.result_lbl.pack(pady=20)
+
+        # KEYBOARD
+        self.keyboard = {}
+        for row in ["QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"]:
+            frame = tk.Frame(right, bg=C["bg_panel"])
+            frame.pack(pady=5)
+            for ch in row:
+                btn = ModernButton(
+                    frame,
+                    text=ch,
+                    width=5,
+                    height=2,
+                    font=F["btn"],
+                    bg=C["btn_normal"],
+                    fg=C["fg_primary"],
+                    command=lambda c=ch.lower(): self.guess(c)
+                )
+                btn.pack(side="left", padx=4)
+                self.keyboard[ch.lower()] = btn
+
+        # RESTART BUTTON
+        self.restart_btn = ModernButton(
+            right,
+            text="INITIALIZE NEW GAME",
+            font=F["info"],
+            bg=C["btn_disabled"],
+            fg=C["txt_disabled"],
+            state="disabled",
+            padx=30,
+            pady=15,
+            command=self.restart
+        )
+        self.restart_btn.pack(pady=30)
+
+    # --- INPUT ---
+    def key_input(self, e):
+        if e.char.isalpha():
+            self.guess(e.char.lower())
+
+    def guess(self, letter):
+        if self.game_over or letter in self.guessed:
+            return
+
+        self.guessed.add(letter)
+        if letter in self.keyboard:
+            self.keyboard[letter].config(state="disabled",
+                                         bg=C["btn_disabled"],
+                                         fg=C["txt_disabled"])
+
+        if letter not in self.word:
+            self.errors += 1
+            self.draw_hangman()
+            self.tries_lbl.config(
+                text=f"REMAINING TRIES: {MAX_TRIES - self.errors}",
+                fg=C["neon_red"]
+            )
+
+        self.word_lbl.config(text=self.display_word())
+        self.check_end()
+
+    # --- CHECK WIN/LOSE ---
+    def check_end(self):
+        if "_" not in self.display_word():
+            self.wins += 1
+            self.play_sound(SOUND_WIN_PATH)
+            self.finish("SYSTEM BREACH SUCCESSFUL!", C["neon_green"])
+
+        elif self.errors >= MAX_TRIES:
+            self.losses += 1
+
+            # 1. SESİ ÇAL
+            self.play_sound(SOUND_DEATH_PATH)
+
+            # 2. RESMİ GÖSTER
+            self.show_death_image()
+
+            self.finish(
+                f"CONNECTION TERMINATED. WORD: {self.word.upper()}",
+                C["neon_red"]
+            )
+
+    def show_death_image(self):
+        """YOU DIED resmini ekranın ortasına basar."""
+        if self.death_image_tk:
+            # Eğer daha önce oluşturulmuşsa kaldır
+            if self.death_label:
+                self.death_label.destroy()
+
+            # Etiketi oluştur ve yerleştir (place ile en üstte durur)
+            self.death_label = tk.Label(
+                self.root,
+                image=self.death_image_tk,
+                bg=C["bg_main"],  # Arka plan rengiyle uyumlu olsun
+                bd=0
+            )
+            # Ekranın tam ortasına (relx=0.5, rely=0.5) yerleştir
+            self.death_label.place(relx=0.5, rely=0.5, anchor="center")
+
+    def finish(self, msg, color):
+        self.game_over = True
+        self.result_lbl.config(text=msg, fg=color)
+        self.restart_btn.config(state="normal",
+                                bg=C["neon_blue"],
+                                fg=C["bg_main"])
+        self.score_lbl.config(
+            text=f"WINS: {self.wins} | LOSSES: {self.losses}"
+        )
+
+    # --- RESTART ---
+    def restart(self):
+        pygame.mixer.stop()
+
+        # RESMİ EKRANDAN KALDIR
+        if self.death_label:
+            self.death_label.destroy()
+            self.death_label = None
+
+        self.canvas.delete("all")
+        self.draw_gallows()
+        self.setup_game()
+        self.word_lbl.config(text=self.display_word())
+        self.tries_lbl.config(text=f"REMAINING TRIES: {MAX_TRIES}",
+                              fg=C["neon_blue"])
+        self.result_lbl.config(text="")
+        for btn in self.keyboard.values():
+            btn.config(state="normal",
+                       bg=C["btn_normal"],
+                       fg=C["fg_primary"])
+        self.restart_btn.config(state="disabled",
+                                bg=C["btn_disabled"],
+                                fg=C["txt_disabled"])
+
+    # --- SOUND & DRAWING ---
+    def toggle_sound(self):
+        self.sound_on = not self.sound_on
+        self.sound_btn.config(
+            text="🔊 SOUND ON" if self.sound_on else "🔇 SOUND OFF"
+        )
+        if not self.sound_on:
+            pygame.mixer.stop()
+
+    def play_sound(self, path):
+        if self.sound_on and os.path.exists(path):
+            try:
+                sound = pygame.mixer.Sound(path)
+                sound.play()
+            except Exception as e:
+                print(f"Ses hatası: {e}")
+
+    def draw_line(self, x1, y1, x2, y2, c, w=4):
+        self.canvas.create_line(x1, y1, x2, y2, fill=c, width=w)
+
+    def draw_oval(self, x1, y1, x2, y2, c, w=4):
+        self.canvas.create_oval(x1, y1, x2, y2, outline=c, width=w)
+
+    def draw_gallows(self):
+        c = C["neon_blue"]
+        self.draw_line(40, 400, 320, 400, c)
+        self.draw_line(100, 400, 100, 50, c)
+        self.draw_line(100, 50, 220, 50, c)
+        self.draw_line(220, 50, 220, 90, C["neon_yellow"])
+
+    def draw_hangman(self):
+        c = C["neon_red"]
+        e = self.errors
+        if e >= 1: self.draw_oval(190, 90, 250, 150, c)
+        if e >= 2: self.draw_line(220, 150, 220, 250, c)
+        if e >= 3: self.draw_line(220, 170, 180, 220, c)
+        if e >= 4: self.draw_line(220, 170, 260, 220, c)
+        if e >= 5: self.draw_line(220, 250, 180, 310, c)
+        if e >= 6: self.draw_line(220, 250, 260, 310, c)
+
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    HangmanSuperGUI(root)
+    root.mainloop()
